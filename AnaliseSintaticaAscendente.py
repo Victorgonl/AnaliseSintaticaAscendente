@@ -1,115 +1,165 @@
-import copy
-import tabulate
+import copy # para cópia de objetos e seus valores
+import tabulate # biblioteca externa para geração de tabelas
+
+
+# constantes
+
+EPSILON = "ε"
+EOF = "$"
+NULO = ""
+SÍMBOLO_DE_ESTENDIDO = "'"
+
+
+# funções
+
+def símbolo_após_ponto(projeção):
+    for i in range(len(projeção)):
+        if (projeção[i] == ".") and (i + 1 < len(projeção)):
+            return projeção[i + 1]
+    return NULO
+
+def fechamento(gramática, não_terminal, projeção):
+    conjunto_fechamento = set()
+    conjunto_fechamento.add((não_terminal, projeção))
+    símbolo = símbolo_após_ponto(projeção)
+    if símbolo in gramática.não_terminais():
+        for p in gramática.regras[símbolo]:
+            nova_projeção = "." + p
+            conjunto_fechamento.add((símbolo, nova_projeção))
+            conjunto = fechamento(gramática, símbolo, nova_projeção)
+            conjunto_fechamento = conjunto_fechamento.union(conjunto)
+    return conjunto_fechamento
+
+def primeiros(gramática, símbolo):
+    conjunto_primeiros = set()
+    if símbolo in gramática.terminais():
+        conjunto_primeiros.add(símbolo)
+        return conjunto_primeiros
+    if EPSILON in gramática.regras[símbolo]:
+        conjunto_primeiros.add(EPSILON)
+    for regra in gramática.regras[símbolo]:
+        if regra[0] in gramática.não_terminais():
+            for i in range(len(regra) - 1):
+                if EPSILON in primeiros(gramática, regra[i]):
+                    conjunto = conjunto_primeiros.union(primeiros(gramática, regra[i]))
+                    conjunto.discard(EPSILON)
+                    conjunto = conjunto.union(primeiros(gramática, regra[i + 1]))
+                    conjunto.discard(EPSILON)
+                    conjunto_primeiros = conjunto_primeiros.union(conjunto)
+                    if i + 1 == len(regra) - 1:
+                        if EPSILON in primeiros(gramática, regra[i + 1]):
+                            conjunto_primeiros.add(EPSILON)
+                else:
+                    conjunto_primeiros = conjunto_primeiros.union(primeiros(gramática, regra[i]))
+                    break
+        elif regra[0] in gramática.terminais() and regra[0] != EPSILON:
+            conjunto_primeiros.add(regra[0])
+    return conjunto_primeiros
+
+def seguidores(gramática, símbolo):
+    conjunto_seguidores = set()
+    if símbolo == gramática.símbolo_inicial:
+        conjunto_seguidores.add(EOF)
+    for variável in gramática.regras.keys():
+        for regra in gramática.regras[variável]:
+            for i in range(0, len(regra)):
+                if i < len(regra) - 1:
+                    if regra[i] == símbolo:
+                        conjunto = primeiros(gramática, regra[i + 1])
+                        conjunto.discard(EPSILON)
+                        conjunto_seguidores = conjunto_seguidores.union(conjunto)
+                        if EPSILON in primeiros(gramática, regra[i + 1]):
+                            conjunto = primeiros(gramática, regra[i + 1])
+                            conjunto.discard(EPSILON)
+                            conjunto = conjunto.union(seguidores(gramática, variável))
+                            conjunto_seguidores = conjunto_seguidores.union(conjunto)
+                else:
+                    if regra[i] == símbolo and símbolo != variável:
+                        conjunto_seguidores = conjunto_seguidores.union(seguidores(gramática, variável))
+    return conjunto_seguidores
+
+
+# classes
 
 class Gramática:
     def __init__(self):
-        self.símbolo_inicial = ""
         self.regras = {}
-        self.terminais = set()
-        self.variáveis = set()
-        self.regras_identificadas = {}
-        self.número_de_regras = 0
-        return
+        self.símbolo_inicial = NULO
+    def adicionar_regra(self, não_terminal, projeção):
+        if not não_terminal in self.não_terminais():
+            if len(self.regras) == 0:
+                self.símbolo_inicial = não_terminal
+            self.regras[não_terminal] = []
+        if projeção in self.regras[não_terminal]:
+            return
+        self.regras[não_terminal].append(projeção)
+    def não_terminais(self):
+        return set(self.regras.keys())
+    def terminais(self):
+        não_terminais = self.não_terminais()
+        símbolos = set()
+        for não_terminal in não_terminais:
+            for projeção in self.regras[não_terminal]:
+                for símbolo in projeção:
+                    símbolos.add(símbolo)
+        return símbolos.difference(não_terminais)
     def imprimir(self):
         print("Gramática:")
-        for i in range(self.número_de_regras):
-            print("(", i, "): ", self.regras_identificadas[i][0], " -> ", self.regras_identificadas[i][1], sep="")
+        print(self.regras)
         return
-    def inserir_regra(self, termo_gerador, termo_gerado):
-        if self.símbolo_inicial == "":
-            self.símbolo_inicial = termo_gerador
-        if not termo_gerador in self.regras.keys():
-            self.regras[termo_gerador] = []
-        self.regras[termo_gerador].append(termo_gerado)
-        for i in termo_gerado:
-            if i.islower():
-                self.terminais.add(i)
-        self.variáveis.add(termo_gerador)
-        self.regras_identificadas[self.número_de_regras] = (termo_gerador, termo_gerado)
-        self.número_de_regras += 1
-        return
-    def estender_gramática(self):
-        novo_símbolo_inicial = self.símbolo_inicial + "'"
-        self.inserir_regra(novo_símbolo_inicial, self.símbolo_inicial)
-        self.símbolo_inicial = novo_símbolo_inicial
-        return
-    def fechamento(self):
-        novas_regras = {}
-        for termo_gerador in self.regras.keys():
-            for termo_gerado in self.regras[termo_gerador]:
-                if not termo_gerador in novas_regras.keys():
-                    novas_regras[termo_gerador] = []
-                novas_regras[termo_gerador].append("." + termo_gerado)
-        self.regras = novas_regras
-
-def símbolo_após_ponto(termo):
-        if termo[-1] != ".":
-            for i in range(len(termo)):
-                if termo[i] == ".":
-                    return termo[i + 1]
-        else:
-            return ""
 
 class Estado:
-    def __init__(self, gramática):
-        self.regras = {}
-        self.símbolos_a_serem_lidos = set()
-        for termo_gerador in gramática.regras.keys():
-            for termo_gerado in gramática.regras[termo_gerador]:
-                self.inserir_regra(termo_gerador, termo_gerado)
-    def inserir_regra(self, termo_gerador, termo_gerado):
-        if not termo_gerador in self.regras.keys():
-            self.regras[termo_gerador] = []
-        self.regras[termo_gerador].append(termo_gerado)
-        for termo_gerador in self.regras.keys():
-            for termo_gerado in self.regras[termo_gerador]:
-                símbolo = símbolo_após_ponto(termo_gerado)
-                if símbolo != "":
-                    self.símbolos_a_serem_lidos.add(símbolo)
-        return
+    def __init__(self, identificação) -> None:
+        self.identificação = identificação
+        self.regras = set()
+    def símbolos_a_serem_lidos(self):
+        conjunto = set()
+        for (não_terminal, projeção) in self.regras:
+            símbolo = símbolo_após_ponto(projeção)
+            if símbolo != NULO:
+                conjunto.add(símbolo)
+        return conjunto
+    def imprimir(self):
+        print(self.regras)
 
 class Autômato:
     def __init__(self, gramática):
-        gramática = copy.deepcopy(gramática)
         self.estados = []
         self.transições = []
-        self.index_do_estado_inicial = 0
-        gramática.estender_gramática()
-        gramática.fechamento()
-        self.criar_estado_inicial(gramática)
-        self.criar_estados_recursivamente(self.estados[self.index_do_estado_inicial], self.index_do_estado_inicial)
-        return
-    def criar_estado_inicial(self, gramática):
-        estado_inicial = Estado(gramática)
+        self.defininir_estado_inicial(gramática)
+        self.denifir_estados_recursivamente(gramática, 0)
+    def defininir_estado_inicial(self, gramática):
+        estado_inicial = Estado(0)
+        não_terminal = gramática.símbolo_inicial + SÍMBOLO_DE_ESTENDIDO
+        projeção = "." + gramática.símbolo_inicial
+        estado_inicial.regras = fechamento(gramática, não_terminal, projeção)
         self.estados.append(estado_inicial)
         empty_set = set()
         self.transições.append(empty_set)
-        return
-    def criar_estados_recursivamente(self, estado, index_do_estado):
-        index_do_novo_estado = index_do_estado
-        for símbolo_lido in estado.símbolos_a_serem_lidos:
-            nova_gramática = Gramática()
-            for termo_gerador in estado.regras.keys():
-                for termo_gerado in estado.regras[termo_gerador]:
-                    if símbolo_após_ponto(termo_gerado) == símbolo_lido:
-                        novo_termo_gerado = termo_gerado.replace("." + símbolo_lido, símbolo_lido + ".")
-                        nova_gramática.inserir_regra(termo_gerador, novo_termo_gerado)
-            novo_estado = Estado(nova_gramática)
-            index_do_novo_estado = len(self.estados)
-            self.estados.append(novo_estado)
+    def denifir_estados_recursivamente(self, gramática, index_do_estado):
+        for símbolo_de_transição in self.estados[index_do_estado].símbolos_a_serem_lidos():
+            criar_novo_estado = True
+            novas_regras = set()
             empty_set = set()
             self.transições.append(empty_set)
-            self.transições[index_do_estado].add((símbolo_lido, index_do_novo_estado))
-            self.criar_estados_recursivamente(novo_estado, index_do_novo_estado)
-        for termo_gerador in self.estados[index_do_novo_estado].regras.keys():
-            for termo_gerado in self.estados[index_do_novo_estado].regras[termo_gerador]:
-                símbolo = símbolo_após_ponto(termo_gerado)
-                if símbolo in self.estados[self.index_do_estado_inicial].regras.keys():
-                    for termo in estado.regras[símbolo]:
-                        self.estados[index_do_novo_estado].inserir_regra(símbolo, termo)
-                        self.transições[index_do_novo_estado].add((símbolo_após_ponto(termo), index_do_novo_estado))
+            for (variável, projeção) in self.estados[index_do_estado].regras:
+                símbolo = símbolo_após_ponto(projeção)
+                if símbolo == símbolo_de_transição:
+                    novas_regras = novas_regras.union(fechamento(gramática, variável, projeção.replace("." + símbolo, símbolo + ".")))
+            for i in range(len(self.estados)):
+                if novas_regras == self.estados[i].regras:
+                    self.transições[index_do_estado].add((símbolo_de_transição, i))
+                    criar_novo_estado = False
+            if criar_novo_estado:
+                index_do_novo_estado = len(self.estados)
+                novo_estado = Estado(index_do_novo_estado)
+                novo_estado.regras = copy.deepcopy(novas_regras)
+                self.transições[index_do_estado].add((símbolo_de_transição, index_do_novo_estado))
+                self.estados.append(novo_estado)
+                self.denifir_estados_recursivamente(gramática, index_do_novo_estado)
         return
     def imprimir(self):
+        print("Estados:")
         for i in range(len(self.estados)):
             print("Estado ", i, ": ", sep="", end="")
             print(self.estados[i].regras)
@@ -119,69 +169,88 @@ class Autômato:
             print()
         return
 
-class Tabela:
+
+class Tabela():
     def __init__(self, gramática, autômato):
-        gramática = copy.deepcopy(gramática)
-        self.número_de_estados = len(autômato.estados)
-        self.terminais = gramática.terminais.union(set("$"))
-        self.variáveis = gramática.variáveis
-        self.ACTION = {terminal: ["  " for _ in range(len(autômato.estados))] for terminal in self.terminais}
-        self.GOTO = {variável: ["   " for _ in range(len(autômato.estados))] for variável in self.variáveis}
-        # operações SHIFT
-        for terminal in self.terminais:
-            for i in range(len(autômato.estados)):
-                for j in range(len(autômato.estados)):
-                    if (terminal, j) in autômato.transições[i]:
-                        self.ACTION[terminal][i] = " S" + str(j)
-        # operações GOTO
-        for variável in self.variáveis:
-            for i in range(len(autômato.estados)):
-                for j in range(len(autômato.estados)):
-                    if (variável, j) in autômato.transições[i]:
-                        self.GOTO[variável][i] = " " + str(j) + " "
-        # operações REDUCE e ACCEPT
+        self.tipo_de_gramática = NULO
+        self.lista_de_regras = []
+        for não_terminal in gramática.não_terminais():
+            for projeção in gramática.regras[não_terminal]:
+                self.lista_de_regras.append((não_terminal, projeção))
+        self.ACTION = {}
+        self.ACTION[EOF] = [NULO for _ in range(len(autômato.estados))]
+        for terminal in gramática.terminais():
+            self.ACTION[terminal] = [NULO for _ in range(len(autômato.estados))]
+        self.GOTO = {}
+        for não_terminal in gramática.não_terminais():
+            self.GOTO[não_terminal] = [NULO for _ in range(len(autômato.estados))]
+        self.operações_de_SHIFT(gramática, autômato)
+        self.operações_de_GOTO(gramática, autômato)
+        if self.operações_de_REDUCE_e_ACCEPT_para_LR0(gramática, autômato):
+            self.tipo_de_gramática = "LR(0)"
+    def operações_de_SHIFT(self, gramática, autômato):
         for i in range(len(autômato.estados)):
-            for termo_gerador in autômato.estados[i].regras.keys():
-                for termo_gerado in autômato.estados[i].regras[termo_gerador]:
-                    if termo_gerado[-1] == ".":
-                        if termo_gerador == termo_gerado[0] + "'":
-                            self.ACTION["$"][i] = "ACC"
-                            break
-                        else:
-                            for terminal in self.terminais:
-                                for j in range(len(gramática.regras_identificadas)):
-                                    if gramática.regras_identificadas[j][0] == termo_gerador:
-                                        if gramática.regras_identificadas[j][1] == termo_gerado[:-1]:
-                                            self.ACTION[terminal][i] = "R" + str(j)
-        return
+            for terminal in gramática.terminais():
+                for (símbolo_lido, estado_destino) in autômato.transições[i]:
+                        if símbolo_lido == terminal:
+                            self.ACTION[terminal][i] = "S" + str(estado_destino)
+    def operações_de_GOTO(self, gramática, autômato):
+        for i in range(len(autômato.estados)):
+            for não_terminal in gramática.não_terminais():
+                for (símbolo_lido, estado_destino) in autômato.transições[i]:
+                        if símbolo_lido == não_terminal:
+                            self.GOTO[não_terminal][i] = str(estado_destino)
+    def operações_de_REDUCE_e_ACCEPT_para_LR0(self, gramática, autômato):
+        ACTION = copy.deepcopy(self.ACTION)
+        for i in range(len(autômato.estados)):
+            for (não_terminal, projeção) in autômato.estados[i].regras:
+                if símbolo_após_ponto(projeção) == NULO:
+                    if não_terminal == gramática.símbolo_inicial + SÍMBOLO_DE_ESTENDIDO:
+                        ACTION[EOF][i] = "ACC"
+                    else:
+                        for identificação in range(len(self.lista_de_regras)):
+                            (x, y) = self.lista_de_regras[identificação]
+                            if y == projeção[:-1]:
+                                for terminal in ACTION.keys():
+                                    ACTION[terminal][i] = "R" + str(identificação)
+        self.ACTION = ACTION
+        return True
+
+
     def imprimir(self):
+        # grmática não reconhecida
+        if self.tipo_de_gramática == NULO:
+            print("Gramática não reconhecida!")
+            return
         # cria o cabeçalho
-        terminais = []
-        variáveis = []
-        for terminal in self.terminais:
-            terminais.append(terminal)
-        terminais.sort()
-        for variável in self.variáveis:
-            variáveis.append(variável)
-        variáveis.sort()
-        cabeçalho = terminais + variáveis
+        cabeçalho_ACTION = list(self.ACTION.keys())
+        cabeçalho_ACTION.sort()
+        cabeçalho_GOTO = list(self.GOTO.keys())
+        cabeçalho_GOTO.sort()
+        cabeçalho = cabeçalho_ACTION + cabeçalho_GOTO
         # cria a matriz da tabela
-        matriz = [["" for _ in range(len(cabeçalho) + 1)] for _ in range(self.número_de_estados)]
+        número_de_estados = len(self.ACTION[cabeçalho_ACTION[0]])
+        matriz = [[NULO for _ in range(len(cabeçalho) + 1)] for _ in range(número_de_estados)]
         # coloca identificações dos estados
-        for i in range(self.número_de_estados):
+        for i in range(número_de_estados):
             matriz[i][0] = str(i)
         # atribui valores as células
         valores = self.ACTION
         valores.update(self.GOTO)
-        for i in range(self.número_de_estados):
+        for i in range(número_de_estados):
             for j in range(len(cabeçalho)):
                 matriz[i][j + 1] = valores[cabeçalho[j]][i]
         # cria e imprime a matriz com a biblioteca 'tabulate'
-        tabela = tabulate.tabulate(matriz, headers=cabeçalho, tablefmt="grid")
+        tabela = tabulate.tabulate(matriz, headers=cabeçalho, tablefmt="grid", stralign='center')
+        print("Tabela:")
+        for i in range(len(self.lista_de_regras)):
+            (não_terminal, projeção) = self.lista_de_regras[i]
+            print("(", i, "): ", não_terminal, " -> ", projeção, sep="")
+        print()
         print("ACTION | GOTO")
         print(tabela)
+        print("Tipo de gramática:", self.tipo_de_gramática)
         return
-
 
 def main():
     gramática = Gramática()
@@ -190,7 +259,7 @@ def main():
     print("Digite as regras da gramática no formato 'S -> aSb', linha por linha:")
     for i in range(número_de_regras):
         regra = input(str(i) + ": ").replace(" ", "").split("->")
-        gramática.inserir_regra(regra[0], regra[1])
+        gramática.adicionar_regra(regra[0], regra[1])
     print()
     gramática.imprimir()
     print()
