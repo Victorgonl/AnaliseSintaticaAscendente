@@ -1,0 +1,6 @@
+{
+    "python.analysis.typeCheckingMode": "basic",
+    "python.linting.pylintEnabled": true,
+    "python.linting.enabled": false
+    "workbench.colorTheme": "One Dark Pro Monokai Darker"
+}
