@@ -19,6 +19,15 @@ def símbolo_após_ponto(projeção):
             return projeção[i + 1]
     return NULO
 
+# retorna o śimbolo após ponto e um não terminal de uma projeção
+def símbolos_após_ponto_e_não_terminal(gramática, projeção):
+    símbolos = NULO
+    for i in range(len(projeção)):
+        if (projeção[i] == ".") and (i + 2 < len(projeção)):
+            if (projeção[i + 1] in gramática.não_terminais()):
+                símbolos = projeção[i + 2:]
+    return símbolos
+
 # retorna o conjunto fechamento de uma projeção da gramática
 def fechamento(gramática, não_terminal, projeção):
     conjunto_fechamento = set()
@@ -32,10 +41,40 @@ def fechamento(gramática, não_terminal, projeção):
             conjunto_fechamento = conjunto_fechamento.union(conjunto)
     return conjunto_fechamento
 
+def conjunto_para_projeção(conjunto):
+    projeção = NULO
+    for i in conjunto:
+        projeção += i
+    return projeção
+
+def projeção_para_conjunto(projeção):
+    conjunto = set()
+    for i in projeção:
+        conjunto.add(i)
+    return conjunto
+
+# retorna o conjunto fechamento de uma projeção da gramática com look-ahead
+def fechamento_com_look_ahead(gramática, não_terminal, projeção, look_ahead):
+    conjunto_fechamento = set()
+    conjunto_fechamento.add((não_terminal, projeção, look_ahead))
+    símbolo = símbolo_após_ponto(projeção)
+    if símbolo in gramática.não_terminais():
+        for p in gramática.regras[símbolo]:
+            nova_projeção = "." + p
+            novo_look_ahead = símbolos_após_ponto_e_não_terminal(gramática, projeção) + look_ahead
+            if not novo_look_ahead == look_ahead:
+                novo_look_ahead = conjunto_para_projeção(primeiros(gramática, novo_look_ahead))
+            conjunto_fechamento.add((símbolo, nova_projeção, novo_look_ahead))
+            conjunto = fechamento_com_look_ahead(gramática, símbolo, nova_projeção, novo_look_ahead)
+            conjunto_fechamento = conjunto_fechamento.union(conjunto)
+    return conjunto_fechamento
+
 # retorna o conjunto primeiros de um símbolo da gramática
 def primeiros(gramática, símbolo):
+    if len(símbolo) > 1:
+        símbolo = símbolo[0]
     conjunto_primeiros = set()
-    if símbolo in gramática.terminais():
+    if símbolo in gramática.terminais() or símbolo == EOF:
         conjunto_primeiros.add(símbolo)
         return conjunto_primeiros
     if EPSILON in gramática.regras[símbolo]:
@@ -120,8 +159,8 @@ class Estado:
         self.regras = set()
     def símbolos_a_serem_lidos(self):
         conjunto = set()
-        for (não_terminal, projeção) in self.regras:
-            símbolo = símbolo_após_ponto(projeção)
+        for x in self.regras:
+            símbolo = símbolo_após_ponto(x[1])
             if símbolo != NULO:
                 conjunto.add(símbolo)
         return conjunto
@@ -130,11 +169,16 @@ class Estado:
 
 # representação de um autômato para Parser
 class Autômato:
-    def __init__(self, gramática):
+    def __init__(self, gramática, criar_com_look_ahead=False):
         self.estados = []
         self.transições = []
-        self.defininir_estado_inicial(gramática)
-        self.denifir_estados_recursivamente(gramática, 0)
+        self.com_look_ahead = criar_com_look_ahead
+        if criar_com_look_ahead:
+            self.definir_estado_inicial_com_look_ahead(gramática)
+            self.denifir_estados_recursivamente_com_look_ahead(gramática, 0)
+        else:
+            self.defininir_estado_inicial(gramática)
+            self.denifir_estados_recursivamente(gramática, 0)
     def defininir_estado_inicial(self, gramática):
         estado_inicial = Estado(0)
         não_terminal = gramática.símbolo_inicial + SÍMBOLO_DE_ESTENDIDO
@@ -164,7 +208,39 @@ class Autômato:
                 self.transições[index_do_estado].add((símbolo_de_transição, index_do_novo_estado))
                 self.estados.append(novo_estado)
                 self.denifir_estados_recursivamente(gramática, index_do_novo_estado)
+    def definir_estado_inicial_com_look_ahead(self, gramática):
+        self.estados.clear()
+        self.transições.clear()
+        estado_inicial = Estado(0)
+        não_terminal = gramática.símbolo_inicial + SÍMBOLO_DE_ESTENDIDO
+        projeção = "." + gramática.símbolo_inicial
+        look_ahead = EOF
+        estado_inicial.regras = fechamento_com_look_ahead(gramática, não_terminal, projeção, look_ahead)
+        self.estados.append(estado_inicial)
+        empty_set = set()
+        self.transições.append(empty_set)
         return
+    def denifir_estados_recursivamente_com_look_ahead(self, gramática, index_do_estado):
+        for símbolo_de_transição in self.estados[index_do_estado].símbolos_a_serem_lidos():
+            criar_novo_estado = True
+            novas_regras = set()
+            empty_set = set()
+            self.transições.append(empty_set)
+            for (variável, projeção, look_ahead) in self.estados[index_do_estado].regras:
+                símbolo = símbolo_após_ponto(projeção)
+                if símbolo == símbolo_de_transição:
+                    novas_regras = novas_regras.union(fechamento_com_look_ahead(gramática, variável, projeção.replace("." + símbolo, símbolo + "."), look_ahead))
+            for i in range(len(self.estados)):
+                if novas_regras == self.estados[i].regras:
+                    self.transições[index_do_estado].add((símbolo_de_transição, i))
+                    criar_novo_estado = False
+            if criar_novo_estado:
+                index_do_novo_estado = len(self.estados)
+                novo_estado = Estado(index_do_novo_estado)
+                novo_estado.regras = copy.deepcopy(novas_regras)
+                self.transições[index_do_estado].add((símbolo_de_transição, index_do_novo_estado))
+                self.estados.append(novo_estado)
+                self.denifir_estados_recursivamente_com_look_ahead(gramática, index_do_novo_estado)
     def imprimir(self):
         print("Estados:")
         for i in range(len(self.estados)):
@@ -193,12 +269,18 @@ class Tabela():
             self.GOTO[não_terminal] = [NULO for _ in range(len(autômato.estados))]
         self.operações_de_SHIFT(gramática, autômato)
         self.operações_de_GOTO(gramática, autômato)
-        # se for possível realizar as operações sem conflito, é LR(0)
-        if self.operações_de_REDUCE_e_ACCEPT_para_LR0(gramática, autômato):
-            self.tipo_de_gramática = "LR(0)"
-        # se não, se for possível realizar as operações sem conflito, é SLR(1)
-        elif self.operações_de_REDUCE_e_ACCEPT_para_SLR1(gramática, autômato):
-            self.tipo_de_gramática = "SLR(1)"
+        if not autômato.com_look_ahead:
+            # se for possível realizar as operações sem conflito, é LR(0)
+            if self.operações_de_REDUCE_e_ACCEPT_para_LR0(gramática, autômato):
+                self.tipo_de_gramática = "LR(0)"
+            # se não, se for possível realizar as operações sem conflito, é SLR(1)
+            elif self.operações_de_REDUCE_e_ACCEPT_para_SLR1(gramática, autômato):
+                self.tipo_de_gramática = "SLR(1)"
+            elif self.operações_de_REDUCE_e_ACCEPT_para_CLR1(gramática, autômato):
+                self.tipo_de_gramática = "CLR(1)"
+        else:
+            if self.operações_de_REDUCE_e_ACCEPT_para_CLR1(gramática, autômato):
+                self.tipo_de_gramática = "CLR(1)"
     def operações_de_SHIFT(self, gramática, autômato):
         for i in range(len(autômato.estados)):
             for terminal in gramática.terminais():
@@ -249,8 +331,26 @@ class Tabela():
                                     ACTION[terminal][i] = "R" + str(identificação)
         self.ACTION = ACTION
         return True
-
-
+    def operações_de_REDUCE_e_ACCEPT_para_CLR1(self, gramática, autômato):
+        autômato = Autômato(gramática, criar_com_look_ahead=True)
+        ACTION = copy.deepcopy(self.ACTION)
+        for i in range(len(autômato.estados)):
+            for (não_terminal, projeção, look_ahead) in autômato.estados[i].regras:
+                if símbolo_após_ponto(projeção) == NULO:
+                    # operação de ACCEPT
+                    if não_terminal == gramática.símbolo_inicial + SÍMBOLO_DE_ESTENDIDO:
+                        ACTION[EOF][i] = "ACC"
+                    # operações de REDUCE
+                    else:
+                        for identificação in range(len(self.lista_de_regras)):
+                            (x, y) = self.lista_de_regras[identificação]
+                            if y == projeção[:-1]:
+                                for terminal in look_ahead:
+                                    if ACTION[terminal][i] != NULO:
+                                        return False
+                                    ACTION[terminal][i] = "R" + str(identificação)
+        self.ACTION = ACTION
+        return True
     def imprimir(self):
         # grmática não reconhecida
         if self.tipo_de_gramática == NULO:
@@ -287,6 +387,12 @@ class Tabela():
         return
 
 def main():
+    print()
+    print("=== ANÁLISE SINTÁTICA ASCENDENTE ===")
+    print()
+    usar_look_ahead = bool(int(input("0. Não utlizar look-ahead\n" +
+                                     "1. Utilizar look-ahead\n>> ")))
+    print()
     gramática = Gramática()
     # lê regras das gramáticas
     número_de_regras = int(input("Digite o número de regras (linhas) a ser lido: "))
@@ -297,11 +403,12 @@ def main():
     print()
     gramática.imprimir()
     print()
-    autômato = Autômato(gramática)
+    autômato = Autômato(gramática, usar_look_ahead)
     autômato.imprimir()
     print()
     tabela = Tabela(gramática, autômato)
     tabela.imprimir()
+    print()
     return
 
 main()
