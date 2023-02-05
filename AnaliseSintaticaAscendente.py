@@ -10,14 +10,16 @@ NULO = ""
 SÍMBOLO_DE_ESTENDIDO = "'"
 
 
-# funções
+# funções para gramática
 
+# retorna o śimbolo após ponto de uma projeção
 def símbolo_após_ponto(projeção):
     for i in range(len(projeção)):
         if (projeção[i] == ".") and (i + 1 < len(projeção)):
             return projeção[i + 1]
     return NULO
 
+# retorna o conjunto fechamento de uma projeção da gramática
 def fechamento(gramática, não_terminal, projeção):
     conjunto_fechamento = set()
     conjunto_fechamento.add((não_terminal, projeção))
@@ -30,6 +32,7 @@ def fechamento(gramática, não_terminal, projeção):
             conjunto_fechamento = conjunto_fechamento.union(conjunto)
     return conjunto_fechamento
 
+# retorna o conjunto primeiros de um símbolo da gramática
 def primeiros(gramática, símbolo):
     conjunto_primeiros = set()
     if símbolo in gramática.terminais():
@@ -56,6 +59,7 @@ def primeiros(gramática, símbolo):
             conjunto_primeiros.add(regra[0])
     return conjunto_primeiros
 
+# retorna o conjunto seguidores de um símbolo da gramática
 def seguidores(gramática, símbolo):
     conjunto_seguidores = set()
     if símbolo == gramática.símbolo_inicial:
@@ -81,6 +85,7 @@ def seguidores(gramática, símbolo):
 
 # classes
 
+# representação de gramáticas
 class Gramática:
     def __init__(self):
         self.regras = {}
@@ -108,6 +113,7 @@ class Gramática:
         print(self.regras)
         return
 
+# representação de um estado de um autômato para Parser
 class Estado:
     def __init__(self, identificação) -> None:
         self.identificação = identificação
@@ -122,6 +128,7 @@ class Estado:
     def imprimir(self):
         print(self.regras)
 
+# representação de um autômato para Parser
 class Autômato:
     def __init__(self, gramática):
         self.estados = []
@@ -169,7 +176,7 @@ class Autômato:
             print()
         return
 
-
+# representação para a tabela do Parser
 class Tabela():
     def __init__(self, gramática, autômato):
         self.tipo_de_gramática = NULO
@@ -186,8 +193,12 @@ class Tabela():
             self.GOTO[não_terminal] = [NULO for _ in range(len(autômato.estados))]
         self.operações_de_SHIFT(gramática, autômato)
         self.operações_de_GOTO(gramática, autômato)
+        # se for possível realizar as operações sem conflito, é LR(0)
         if self.operações_de_REDUCE_e_ACCEPT_para_LR0(gramática, autômato):
             self.tipo_de_gramática = "LR(0)"
+        # se não, se for possível realizar as operações sem conflito, é SLR(1)
+        elif self.operações_de_REDUCE_e_ACCEPT_para_SLR1(gramática, autômato):
+            self.tipo_de_gramática = "SLR(1)"
     def operações_de_SHIFT(self, gramática, autômato):
         for i in range(len(autômato.estados)):
             for terminal in gramática.terminais():
@@ -205,13 +216,36 @@ class Tabela():
         for i in range(len(autômato.estados)):
             for (não_terminal, projeção) in autômato.estados[i].regras:
                 if símbolo_após_ponto(projeção) == NULO:
+                    # operação de ACCEPT
                     if não_terminal == gramática.símbolo_inicial + SÍMBOLO_DE_ESTENDIDO:
                         ACTION[EOF][i] = "ACC"
+                    # operações de REDUCE
                     else:
                         for identificação in range(len(self.lista_de_regras)):
                             (x, y) = self.lista_de_regras[identificação]
                             if y == projeção[:-1]:
                                 for terminal in ACTION.keys():
+                                    if ACTION[terminal][i] != NULO:
+                                        return False
+                                    ACTION[terminal][i] = "R" + str(identificação)
+        self.ACTION = ACTION
+        return True
+    def operações_de_REDUCE_e_ACCEPT_para_SLR1(self, gramática, autômato):
+        ACTION = copy.deepcopy(self.ACTION)
+        for i in range(len(autômato.estados)):
+            for (não_terminal, projeção) in autômato.estados[i].regras:
+                if símbolo_após_ponto(projeção) == NULO:
+                    # operação de ACCEPT
+                    if não_terminal == gramática.símbolo_inicial + SÍMBOLO_DE_ESTENDIDO:
+                        ACTION[EOF][i] = "ACC"
+                    # operações de REDUCE
+                    else:
+                        for identificação in range(len(self.lista_de_regras)):
+                            (x, y) = self.lista_de_regras[identificação]
+                            if y == projeção[:-1]:
+                                for terminal in seguidores(gramática, não_terminal):
+                                    if ACTION[terminal][i] != NULO:
+                                        return False
                                     ACTION[terminal][i] = "R" + str(identificação)
         self.ACTION = ACTION
         return True
