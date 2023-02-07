@@ -1,3 +1,8 @@
+# Análise Sintática Ascendente
+
+
+# bibliotecas
+
 import copy # para cópia de objetos e seus valores
 import tabulate # biblioteca externa para geração de tabelas
 
@@ -383,6 +388,7 @@ class Tabela():
         print()
         print("ACTION | GOTO")
         print(tabela)
+        print()
         print("Tipo de gramática:", self.tipo_de_gramática)
         return
 
